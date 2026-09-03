@@ -1,0 +1,19 @@
+{
+  "name": "daily-head-start",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Copy SJ Daily Head Start plan and post to Slack channels on a weekday schedule",
+  "scripts": {
+    "save-auth": "node src/save-auth.js",
+    "post-dhs": "node src/post-dhs.js",
+    "post-dhs:headed": "node -e \"process.env.DHS_HEADED='1';require('./src/post-dhs.js')\"",
+    "post-dhs:dry": "node -e \"process.env.DHS_DRY_RUN='1';process.env.DHS_HEADED='1';require('./src/post-dhs.js')\"",
+    "register-task": "powershell -ExecutionPolicy Bypass -File ./scripts/register-task.ps1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}
