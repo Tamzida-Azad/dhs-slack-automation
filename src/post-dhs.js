@@ -3,6 +3,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const config = require('./config');
 const { formatDhsPlan } = require('./format-plan');
+const { fetchPlanFromApi } = require('./portal-api');
 
 function stamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
@@ -232,32 +233,61 @@ async function main() {
   const log = createLogger();
   const headless = process.env.DHS_HEADED !== '1';
   const dryRun = process.env.DHS_DRY_RUN === '1';
+  // api (default) = portal edge functions for plan; browser = Copy Plan UI
+  const mode = (process.env.DHS_MODE || 'api').toLowerCase();
 
-  if (!fs.existsSync(config.paths.browserProfile)) {
-    throw new Error(`Missing browser profile. Run: npm run save-auth`);
+  log.info('Starting DHS post', { mode, headless, dryRun, logFile: log.filePath });
+
+  let formatted;
+  let planSourceNote = '';
+
+  if (mode === 'api') {
+    try {
+      const planParts = await fetchPlanFromApi();
+      formatted = formatDhsPlan(planParts);
+      planSourceNote = `API (${planParts.meta.email || 'portal'}; ${planParts.meta.taskCount} tasks, ${planParts.meta.meetingCount} meetings)`;
+      log.info('Fetched DHS plan via portal API', planParts.meta);
+    } catch (error) {
+      log.warn(`API plan fetch failed (${error.message}); falling back to browser Copy Plan`);
+    }
   }
 
-  log.info('Starting DHS post', { headless, dryRun, logFile: log.filePath });
+  const needsBrowserForPlan = !formatted;
+  const needsBrowserForSlack = !dryRun;
 
-  const context = await chromium.launchPersistentContext(config.paths.browserProfile, {
-    headless,
-    viewport: { width: 1400, height: 900 },
-    args: ['--disable-blink-features=AutomationControlled'],
-  });
+  if (needsBrowserForPlan || needsBrowserForSlack) {
+    if (!fs.existsSync(config.paths.browserProfile)) {
+      throw new Error(`Missing browser profile. Run: npm run save-auth`);
+    }
+  }
 
-  let page = context.pages()[0] || (await context.newPage());
+  let context = null;
+  let page = null;
 
   try {
-    await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+    if (needsBrowserForPlan || needsBrowserForSlack) {
+      context = await chromium.launchPersistentContext(config.paths.browserProfile, {
+        headless,
+        viewport: { width: 1400, height: 900 },
+        args: ['--disable-blink-features=AutomationControlled'],
+      });
+      page = context.pages()[0] || (await context.newPage());
+      await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+    }
 
-    const plan = await copyDhsPlan(page, log);
-    const formatted = formatDhsPlan(plan);
+    if (!formatted) {
+      const plan = await copyDhsPlan(page, log);
+      formatted = formatDhsPlan(plan);
+      planSourceNote = 'browser Copy Plan';
+    }
+
     fs.writeFileSync(
       path.join(config.paths.logsDir, `plan-${stamp()}.txt`),
-      `${plan}\n\n----- FORMATTED PLAIN -----\n${formatted.plain}\n`,
+      `SOURCE: ${planSourceNote}\n\n${formatted.plain}\n`,
       'utf8'
     );
     log.info('Formatted DHS plan', {
+      source: planSourceNote,
       projects: formatted.parsed.projects.length,
       meetings: formatted.parsed.meetings.length,
     });
@@ -291,13 +321,14 @@ async function main() {
     }
 
     log.info('Completed DHS publish to all channels', {
+      source: planSourceNote,
       channels: config.channels.map((c) => `#${c}`),
     });
     console.log(
-      `\nSUCCESS: DHS plan posted to ${config.channels.map((c) => `#${c}`).join(' and ')}`
+      `\nSUCCESS: DHS plan (${planSourceNote}) posted to ${config.channels.map((c) => `#${c}`).join(' and ')}`
     );
   } finally {
-    await context.close();
+    if (context) await context.close();
   }
 }
 
