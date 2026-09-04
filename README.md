@@ -7,7 +7,7 @@ Automates copying your **Daily Head Start (DHS)** plan from the SJ Innovation De
 | **Source** | [SJ Dev Portal → My DHS](https://developer.sjinnovation.us/dashboard/my-dhs) |
 | **Destinations** | Slack `#daily-head-start` and `#sj-qa` (SJ Innovation workspace) |
 | **Schedule** | Weekdays at **12:00 PM Asia/Dhaka** (Windows Task Scheduler) |
-| **Stack** | Node.js + Playwright + persistent browser profile |
+| **Stack** | Node.js + portal APIs (plan) + Playwright (Slack) + Windows Task Scheduler |
 
 ---
 
@@ -23,11 +23,43 @@ Before this automation, the daily routine was manual:
 
 **After setup, this project:**
 
-- Copies the DHS plan automatically
-- Reformats it for Slack (bold section headers + spacing)
-- Posts to **both** Slack channels
-- Reuses a saved browser session so you are not prompted to log in each run
+- Fetches ActiveCollab tasks + today's calendar via the **same live portal edge functions** My DHS uses (no Copy Plan clicks by default)
+- Reformats the plan for Slack (bold section headers + spacing)
+- Posts to **both** Slack channels (browser paste today; Slack Bot API optional later)
+- Reuses a saved browser/portal session so you are not prompted to log in each run
+- Falls back to browser **Copy Plan** if the API session expires
 - Runs on a weekday noon schedule on your Windows PC
+
+---
+
+## How plan fetch works (API mode)
+
+```
+npm run post-dhs
+  → POST …/functions/v1/ac-my-tasks
+  → POST …/functions/v1/my-calendar-events  { timezone }
+  → format Today's Plan
+  → post to Slack (browser)
+```
+
+Refresh portal JWT (uses your local browser-profile once):
+
+```bash
+npm run refresh-portal-session
+```
+
+This writes gitignored files under `auth/`:
+
+- `portal-session.json` — access token + anon key for edge functions
+- `dismissals.json` — My DHS locally dismissed tasks/meetings (if any)
+
+| Mode | Command |
+|------|---------|
+| API plan + Slack browser (**default**) | `npm run post-dhs` |
+| Force browser Copy Plan | `npm run post-dhs:browser` |
+| API plan only (no Slack) | `npm run post-dhs:dry` |
+
+**Note:** API mode matches a refreshed My DHS list (incomplete tasks + today's meetings). Leave/OOO-style meeting titles are filtered. Dismissals apply only when captured in `dismissals.json`.
 
 ---
 
@@ -65,8 +97,10 @@ daily-head-start/
 ├── src/
 │   ├── config.js             ← URLs, Slack team/channel IDs
 │   ├── save-auth.js          ← one-time interactive login
-│   ├── post-dhs.js           ← main automation (copy → format → post)
-│   └── format-plan.js        ← DHS text → Slack-friendly layout
+│   ├── refresh-portal-session.js ← export JWT for API plan fetch
+│   ├── portal-api.js         ← call ac-my-tasks + my-calendar-events
+│   ├── post-dhs.js           ← main automation (API plan → format → Slack)
+│   └── format-plan.js        ← structured/text plan → Slack-friendly layout
 ├── scripts/
 │   ├── run-daily.bat         ← Task Scheduler entry point
 │   └── register-task.ps1     ← creates weekday 12:00 task
@@ -194,9 +228,12 @@ The PC should be **on** around noon. If it was asleep, `StartWhenAvailable` can 
 | Script | Purpose |
 |--------|---------|
 | `npm run save-auth` | Interactive login → save persistent profile |
-| `npm run post-dhs` | Full automation (headless by default) |
-| `npm run post-dhs:headed` | Same with visible browser |
-| `npm run post-dhs:dry` | Format/copy only, no Slack post |
+| `npm run refresh-portal-session` | Capture portal JWT for API plan fetch |
+| `npm run post-dhs` | Full automation (API plan by default + Slack) |
+| `npm run post-dhs:api` | Explicit API plan mode |
+| `npm run post-dhs:browser` | Use My DHS Copy Plan UI instead of APIs |
+| `npm run post-dhs:headed` | Same with visible browser (for Slack) |
+| `npm run post-dhs:dry` | API plan only — no Slack post |
 | `npm run register-task` | Register Windows noon weekday task |
 
 ---
