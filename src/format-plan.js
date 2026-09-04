@@ -92,10 +92,10 @@ function escapeHtml(text) {
 }
 
 /**
- * @returns {{ plain: string, html: string, mrkdwn: string }}
+ * Format a structured plan ({ title, projects, meetings }) for Slack.
+ * @returns {{ plain: string, html: string, mrkdwn: string, parsed: object }}
  */
-function formatDhsPlan(raw) {
-  const parsed = parseDhsPlan(raw);
+function formatParsedPlan(parsed) {
   const plainParts = [];
   const htmlParts = [];
   const mrkdwnParts = [];
@@ -157,7 +157,23 @@ function formatDhsPlan(raw) {
   };
 }
 
+/**
+ * @param {string|object} rawOrParsed - clipboard text OR structured plan from portal API
+ * @returns {{ plain: string, html: string, mrkdwn: string, parsed: object }}
+ */
+function formatDhsPlan(rawOrParsed) {
+  if (rawOrParsed && typeof rawOrParsed === 'object' && Array.isArray(rawOrParsed.projects)) {
+    return formatParsedPlan({
+      title: rawOrParsed.title || "Today's Plan:",
+      projects: rawOrParsed.projects,
+      meetings: rawOrParsed.meetings || [],
+    });
+  }
+  return formatParsedPlan(parseDhsPlan(rawOrParsed));
+}
+
 module.exports = {
   parseDhsPlan,
   formatDhsPlan,
+  formatParsedPlan,
 };
