@@ -4,9 +4,9 @@
  * Expected raw shape:
  * Today's Plan:
  * • Project Name
- *   ○ task
+ *   ◦ task
  * • Another Project
- *   ○ task
+ *   ◦ task
  * Meetings:
  * • meeting
  */
@@ -111,23 +111,28 @@ function formatParsedPlan(parsed) {
 
   parsed.projects.forEach((project, index) => {
     if (index > 0) {
-      // 2 blank lines between projects
+      // 1 blank line between projects
       plainParts.push('');
-      plainParts.push('');
-      htmlParts.push('<div><br></div><div><br></div>');
-      mrkdwnParts.push('');
+      htmlParts.push('<div><br></div>');
       mrkdwnParts.push('');
     }
 
-    plainParts.push(project.name);
-    htmlParts.push(`<div><strong>${escapeHtml(project.name)}</strong></div>`);
-    mrkdwnParts.push(`*${project.name}*`);
+    plainParts.push(`• ${project.name}`);
+    mrkdwnParts.push(`• *${project.name}*`);
 
-    for (const task of project.tasks) {
-      plainParts.push(`○ ${task}`);
-      htmlParts.push(`<div>○ ${escapeHtml(task)}</div>`);
-      mrkdwnParts.push(`○ ${task}`);
+    // Nested <ul> so Slack rich-text keeps real indent + small nested bullets
+    let projectHtml = `<ul><li><strong>${escapeHtml(project.name)}</strong>`;
+    if (project.tasks.length) {
+      projectHtml += '<ul>';
+      for (const task of project.tasks) {
+        plainParts.push(`\t◦ ${task}`);
+        mrkdwnParts.push(`\t◦ ${task}`);
+        projectHtml += `<li>${escapeHtml(task)}</li>`;
+      }
+      projectHtml += '</ul>';
     }
+    projectHtml += '</li></ul>';
+    htmlParts.push(projectHtml);
   });
 
   if (parsed.meetings.length) {
@@ -142,11 +147,14 @@ function formatParsedPlan(parsed) {
     htmlParts.push('<div><strong>Meetings:</strong></div>');
     mrkdwnParts.push('*Meetings:*');
 
+    let meetingsHtml = '<ul>';
     for (const meeting of parsed.meetings) {
       plainParts.push(`• ${meeting}`);
-      htmlParts.push(`<div>• ${escapeHtml(meeting)}</div>`);
       mrkdwnParts.push(`• ${meeting}`);
+      meetingsHtml += `<li>${escapeHtml(meeting)}</li>`;
     }
+    meetingsHtml += '</ul>';
+    htmlParts.push(meetingsHtml);
   }
 
   return {
