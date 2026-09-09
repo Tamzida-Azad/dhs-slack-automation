@@ -27,6 +27,87 @@ function loadSession() {
   if (!session.anonKey || !session.accessToken || !session.functionsBase) {
     throw new Error('portal-session.json is incomplete. Re-run: npm run refresh-portal-session');
   }
+  if (!session.supabaseUrl && session.functionsBase) {
+    session.supabaseUrl = session.functionsBase.replace(/\/functions\/v1\/?$/, '');
+  }
+  return session;
+}
+
+function saveSession(session) {
+  fs.mkdirSync(path.dirname(SESSION_PATH), { recursive: true });
+  fs.writeFileSync(SESSION_PATH, JSON.stringify(session, null, 2));
+}
+
+function accessTokenExpiresAt(accessToken) {
+  try {
+    const payload = JSON.parse(
+      Buffer.from(String(accessToken).split('.')[1], 'base64url').toString('utf8')
+    );
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAccessTokenExpired(accessToken, skewMs = 60_000) {
+  const expMs = accessTokenExpiresAt(accessToken);
+  if (expMs == null) return false;
+  return Date.now() >= expMs - skewMs;
+}
+
+/**
+ * Exchange refresh_token for a new access_token via Supabase Auth.
+ * Persists updated tokens to portal-session.json.
+ */
+async function refreshAccessToken(session) {
+  if (!session.refreshToken) {
+    throw new Error(
+      'portal-session.json has no refreshToken. Re-run: npm run refresh-portal-session'
+    );
+  }
+  const supabaseUrl =
+    session.supabaseUrl ||
+    (session.functionsBase || '').replace(/\/functions\/v1\/?$/, '');
+  if (!supabaseUrl) {
+    throw new Error('portal-session.json is missing supabaseUrl. Re-run: npm run refresh-portal-session');
+  }
+
+  const url = `${supabaseUrl}/auth/v1/token?grant_type=refresh_token`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: session.anonKey,
+      Authorization: `Bearer ${session.anonKey}`,
+    },
+    body: JSON.stringify({ refresh_token: session.refreshToken }),
+  });
+
+  const text = await res.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(`token refresh returned non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
+  }
+
+  if (!res.ok || !json.access_token) {
+    throw new Error(
+      `token refresh failed HTTP ${res.status}: ${json?.error_description || json?.msg || json?.error || text.slice(0, 200)}`
+    );
+  }
+
+  session.accessToken = json.access_token;
+  if (json.refresh_token) session.refreshToken = json.refresh_token;
+  session.savedAt = new Date().toISOString();
+  saveSession(session);
+  return session;
+}
+
+async function ensureFreshSession(session) {
+  if (isAccessTokenExpired(session.accessToken)) {
+    return refreshAccessToken(session);
+  }
   return session;
 }
 
@@ -45,7 +126,7 @@ function loadDismissals() {
   }
 }
 
-async function callFunction(session, name, body) {
+async function callFunctionOnce(session, name, body) {
   const url = `${session.functionsBase}/${name}`;
   const res = await fetch(url, {
     method: 'POST',
@@ -62,18 +143,32 @@ async function callFunction(session, name, body) {
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error(`${name} returned non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
+    const err = new Error(`${name} returned non-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
   }
 
   if (!res.ok) {
-    throw new Error(
+    const err = new Error(
       `${name} failed HTTP ${res.status}: ${json?.error || json?.message || text.slice(0, 200)}`
     );
+    err.status = res.status;
+    throw err;
   }
   if (json && json.success === false) {
     throw new Error(`${name} success=false: ${json?.error || json?.message || 'unknown'}`);
   }
   return json;
+}
+
+async function callFunction(session, name, body) {
+  try {
+    return await callFunctionOnce(session, name, body);
+  } catch (error) {
+    if (error.status !== 401) throw error;
+    await refreshAccessToken(session);
+    return callFunctionOnce(session, name, body);
+  }
 }
 
 function isLeaveMeeting(summary) {
@@ -110,7 +205,7 @@ async function fetchPlanFromApi(options = {}) {
     Intl.DateTimeFormat().resolvedOptions().timeZone ||
     'Asia/Dhaka';
 
-  const session = loadSession();
+  const session = await ensureFreshSession(loadSession());
   const dismissals = loadDismissals();
 
   const [tasksRes, meetingsRes] = await Promise.all([
@@ -149,5 +244,7 @@ module.exports = {
   SESSION_PATH,
   DISMISSALS_PATH,
   loadSession,
+  refreshAccessToken,
+  ensureFreshSession,
   fetchPlanFromApi,
 };
