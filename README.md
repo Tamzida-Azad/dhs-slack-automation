@@ -48,6 +48,7 @@ Refresh portal JWT (uses your local browser-profile once):
 npm run refresh-portal-session
 ```
 
+API mode auto-refreshes an expired access token using the saved `refreshToken` when possible. Re-run the command above (or `npm run save-auth`) only if refresh also fails.
 This writes gitignored files under `auth/`:
 
 - `portal-session.json` — access token + anon key for edge functions
@@ -70,13 +71,13 @@ The raw “Copy Plan” text is reshaped before posting:
 ```
 Today's Plan:                    ← bold
                                  ← 1 blank line
-CalystaPro CRM | Hardik Soni     ← bold (project name; names vary by day)
-○ task …
-○ task …
+• Project Name                   ← bold project name (names vary by day)
+  ◦ task …                       ← nested small circle bullet
+  ◦ task …
 
-                                 ← 2 blank lines
-CalystaPro EMR | …               ← bold
-○ task …
+                                 ← 1 blank line between projects
+• Another Project                ← bold
+  ◦ task …
 
                                  ← 2 blank lines
 Meetings:                        ← bold
