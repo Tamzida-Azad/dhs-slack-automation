@@ -4,6 +4,7 @@ const { chromium } = require('playwright');
 const config = require('./config');
 const { formatDhsPlan } = require('./format-plan');
 const { fetchPlanFromApi } = require('./portal-api');
+const { refreshPortalSession } = require('./refresh-portal-session');
 
 function stamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
@@ -286,27 +287,26 @@ async function main() {
   const dryRun = process.env.DHS_DRY_RUN === '1';
   // api (default) = portal edge functions for plan; browser = Copy Plan UI
   const mode = (process.env.DHS_MODE || 'api').toLowerCase();
+  // Refresh portal JWT from browser before API fetch (keeps daily tokens current).
+  // Set DHS_SKIP_SESSION_REFRESH=1 to skip (manual/debug only).
+  const refreshSession =
+    mode === 'api' && process.env.DHS_SKIP_SESSION_REFRESH !== '1';
 
-  log.info('Starting DHS post', { mode, headless, dryRun, logFile: log.filePath });
+  log.info('Starting DHS post', {
+    mode,
+    headless,
+    dryRun,
+    refreshSession,
+    logFile: log.filePath,
+  });
 
   let formatted;
   let planSourceNote = '';
 
-  if (mode === 'api') {
-    try {
-      const planParts = await fetchPlanFromApi();
-      formatted = formatDhsPlan(planParts);
-      planSourceNote = `API (${planParts.meta.email || 'portal'}; ${planParts.meta.taskCount} tasks, ${planParts.meta.meetingCount} meetings)`;
-      log.info('Fetched DHS plan via portal API', planParts.meta);
-    } catch (error) {
-      log.warn(`API plan fetch failed (${error.message}); falling back to browser Copy Plan`);
-    }
-  }
-
-  const needsBrowserForPlan = !formatted;
   const needsBrowserForSlack = !dryRun;
+  const needsBrowserEarly = refreshSession || needsBrowserForSlack || mode === 'browser';
 
-  if (needsBrowserForPlan || needsBrowserForSlack) {
+  if (needsBrowserEarly || mode === 'browser') {
     if (!fs.existsSync(config.paths.browserProfile)) {
       throw new Error(`Missing browser profile. Run: npm run save-auth`);
     }
@@ -316,7 +316,7 @@ async function main() {
   let page = null;
 
   try {
-    if (needsBrowserForPlan || needsBrowserForSlack) {
+    if (needsBrowserEarly) {
       context = await chromium.launchPersistentContext(config.paths.browserProfile, {
         headless,
         viewport: { width: 1400, height: 900 },
@@ -326,7 +326,38 @@ async function main() {
       await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
     }
 
+    if (refreshSession) {
+      try {
+        await refreshPortalSession({ page, context, headless, log });
+      } catch (error) {
+        log.warn(`Daily portal session refresh failed (${error.message}); trying saved tokens`);
+      }
+    }
+
+    if (mode === 'api') {
+      try {
+        const planParts = await fetchPlanFromApi();
+        formatted = formatDhsPlan(planParts);
+        planSourceNote = `API (${planParts.meta.email || 'portal'}; ${planParts.meta.taskCount} tasks, ${planParts.meta.meetingCount} meetings)`;
+        log.info('Fetched DHS plan via portal API', planParts.meta);
+      } catch (error) {
+        log.warn(`API plan fetch failed (${error.message}); falling back to browser Copy Plan`);
+      }
+    }
+
     if (!formatted) {
+      if (!page) {
+        if (!fs.existsSync(config.paths.browserProfile)) {
+          throw new Error(`Missing browser profile. Run: npm run save-auth`);
+        }
+        context = await chromium.launchPersistentContext(config.paths.browserProfile, {
+          headless,
+          viewport: { width: 1400, height: 900 },
+          args: ['--disable-blink-features=AutomationControlled'],
+        });
+        page = context.pages()[0] || (await context.newPage());
+        await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+      }
       const plan = await copyDhsPlan(page, log);
       formatted = formatDhsPlan(plan);
       planSourceNote = 'browser Copy Plan';
