@@ -29,4 +29,9 @@ module.exports = {
     action: 30_000,
     loginWaitMs: 10 * 60_000,
   },
+  /** After a Slack post fails: wait delayMs, then retry up to maxRetries more times. */
+  slackRetry: {
+    maxRetries: 10,
+    delayMs: 10 * 60_000, // 10 minutes from each failure
+  },
 };
