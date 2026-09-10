@@ -36,19 +36,22 @@ Before this automation, the daily routine was manual:
 
 ```
 npm run post-dhs
+  → refresh portal JWT from browser profile (My DHS)
   → POST …/functions/v1/ac-my-tasks
   → POST …/functions/v1/my-calendar-events  { timezone }
   → format Today's Plan
   → post to Slack (browser)
 ```
 
-Refresh portal JWT (uses your local browser-profile once):
+Each weekday run re-captures the portal access/refresh tokens from your signed-in browser profile before calling the APIs, so expired or already-used refresh tokens do not break the daily job.
+
+Manual refresh (optional):
 
 ```bash
 npm run refresh-portal-session
 ```
 
-API mode auto-refreshes an expired access token using the saved `refreshToken` when possible. Re-run the command above (or `npm run save-auth`) only if refresh also fails.
+API mode also renews an expired access token via `refreshToken` when possible. Set `DHS_SKIP_SESSION_REFRESH=1` to skip the browser capture step (debug only).
 This writes gitignored files under `auth/`:
 
 - `portal-session.json` — access token + anon key for edge functions
