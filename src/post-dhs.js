@@ -229,6 +229,57 @@ async function postToComposer(page, formatted, log) {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Open channel + post. On failure, wait delayMs from that failure, then retry
+ * up to maxRetries more times (10 × 10 min by default).
+ */
+async function postToSlackWithRetry(page, channel, formatted, log) {
+  const { maxRetries, delayMs } = config.slackRetry;
+  const totalAttempts = maxRetries + 1;
+  let lastError;
+
+  for (let attempt = 1; attempt <= totalAttempts; attempt++) {
+    try {
+      if (attempt > 1) {
+        log.info(`Slack retry #${attempt - 1}/${maxRetries} for #${channel}`, {
+          attempt,
+          totalAttempts,
+        });
+      }
+      page = await openSlackChannel(page, channel, log);
+      await postToComposer(page, formatted, log);
+      if (attempt > 1) {
+        log.info(`Slack post succeeded after retry for #${channel}`, {
+          attempt,
+          retriesUsed: attempt - 1,
+        });
+      }
+      return page;
+    } catch (error) {
+      lastError = error;
+      const msg = String(error.message || error);
+      log.error(`Slack post attempt ${attempt}/${totalAttempts} failed for #${channel}`, {
+        error: msg,
+      });
+
+      if (attempt >= totalAttempts) break;
+
+      const nextAt = new Date(Date.now() + delayMs).toISOString();
+      log.warn(
+        `Waiting ${Math.round(delayMs / 60_000)} min before Slack retry #${attempt}/${maxRetries} for #${channel}`,
+        { nextAttemptAt: nextAt }
+      );
+      await sleep(delayMs);
+    }
+  }
+
+  throw lastError;
+}
+
 async function main() {
   const log = createLogger();
   const headless = process.env.DHS_HEADED !== '1';
@@ -303,13 +354,14 @@ async function main() {
     const results = [];
     for (const channel of config.channels) {
       try {
-        page = await openSlackChannel(page, channel, log);
-        await postToComposer(page, formatted, log);
+        page = await postToSlackWithRetry(page, channel, formatted, log);
         results.push({ channel, status: 'PASS' });
         log.info(`PASS #${channel}`);
       } catch (error) {
         results.push({ channel, status: 'FAIL', error: String(error.message || error) });
-        log.error(`FAIL #${channel}`, { error: String(error.message || error) });
+        log.error(`FAIL #${channel} after ${config.slackRetry.maxRetries} retries`, {
+          error: String(error.message || error),
+        });
       }
     }
 
