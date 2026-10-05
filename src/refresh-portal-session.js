@@ -35,10 +35,15 @@ async function refreshPortalSession(options = {}) {
 
   let anonKey = null;
   let accessToken = null;
+  let supabaseUrl = process.env.DHS_SUPABASE_URL || null;
   const postBodies = {};
 
   const onRequest = (req) => {
     const url = req.url();
+    const supabaseMatch = url.match(/https:\/\/([a-z0-9-]+)\.supabase\.co/i);
+    if (supabaseMatch) {
+      supabaseUrl = `https://${supabaseMatch[1]}.supabase.co`;
+    }
     if (!/functions\/v1\/(ac-my-tasks|my-calendar-events)/.test(url)) return;
     const headers = req.headers();
     if (headers.apikey) anonKey = headers.apikey;
@@ -113,9 +118,15 @@ async function refreshPortalSession(options = {}) {
       );
     }
 
+    if (!supabaseUrl) {
+      throw new Error(
+        'Could not detect Supabase URL from portal traffic. Set DHS_SUPABASE_URL in .env or re-run save-auth.'
+      );
+    }
+
     const session = {
-      supabaseUrl: 'https://pewtycgwvsifsrtjgbxx.supabase.co',
-      functionsBase: 'https://pewtycgwvsifsrtjgbxx.supabase.co/functions/v1',
+      supabaseUrl,
+      functionsBase: `${supabaseUrl.replace(/\/$/, '')}/functions/v1`,
       anonKey,
       accessToken,
       refreshToken,

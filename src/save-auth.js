@@ -24,7 +24,7 @@ async function main() {
   console.log('');
   console.log('1) Sign in to the SJ Developer Portal if prompted.');
   console.log('2) Confirm you can open My DHS.');
-  console.log('3) Sign in to Slack (SJ Innovation workspace, 100+ members) if prompted.');
+  console.log(`3) Sign in to Slack (${config.workspaceHint}) if prompted.`);
   console.log('4) Open #daily-head-start once so Slack remembers it.');
   console.log('5) Return here and press Enter when both sessions look good.');
   console.log('');
