@@ -1,11 +1,11 @@
 # Daily Head Start → Slack Automation
 
-Automates copying your **Daily Head Start (DHS)** plan from the SJ Innovation Developer Portal and posting a formatted version to Slack — without logging in every day.
+Automates copying your **Daily Head Start (DHS)** plan from a developer portal and posting a formatted version to Slack — without logging in every day.
 
 | Item | Detail |
 |------|--------|
-| **Source** | [SJ Dev Portal → My DHS](https://developer.sjinnovation.us/dashboard/my-dhs) |
-| **Destinations** | Slack `#daily-head-start` and `#sj-qa` (SJ Innovation workspace) |
+| **Source** | Your org portal **My DHS** page (URL in `.env`) |
+| **Destinations** | Slack channels you configure in `.env` |
 | **Schedule** | Weekdays at **12:00 PM Asia/Dhaka** (Windows Task Scheduler) |
 | **Stack** | Node.js + portal APIs (plan) + Playwright (Slack) + Windows Task Scheduler |
 
@@ -13,129 +13,68 @@ Automates copying your **Daily Head Start (DHS)** plan from the SJ Innovation De
 
 ## What this achieves
 
-Before this automation, the daily routine was manual:
-
-1. Open the SJ Developer Portal and go to **My DHS**
-2. Click **Refresh Plan** and **Copy Plan**
-3. Open Slack, switch to the SJ Innovation workspace
-4. Paste into `#daily-head-start`
-5. Paste again into `#sj-qa`
-
 **After setup, this project:**
 
-- Fetches ActiveCollab tasks + today's calendar via the **same live portal edge functions** My DHS uses (no Copy Plan clicks by default)
+- Fetches tasks + today's calendar via the same live portal edge functions My DHS uses
 - Reformats the plan for Slack (bold section headers + spacing)
-- Posts to **both** Slack channels (browser paste today; Slack Bot API optional later)
-- Reuses a saved browser/portal session so you are not prompted to log in each run
+- Posts to configured Slack channels (browser paste)
+- Reuses a saved browser/portal session
 - Falls back to browser **Copy Plan** if the API session expires
 - Runs on a weekday noon schedule on your Windows PC
-
----
-
-## How plan fetch works (API mode)
-
-```
-npm run post-dhs
-  → refresh portal JWT from browser profile (My DHS)
-  → POST …/functions/v1/ac-my-tasks
-  → POST …/functions/v1/my-calendar-events  { timezone }
-  → format Today's Plan
-  → post to Slack (browser)
-```
-
-Each weekday run re-captures the portal access/refresh tokens from your signed-in browser profile before calling the APIs, so expired or already-used refresh tokens do not break the daily job.
-
-Manual refresh (optional):
-
-```bash
-npm run refresh-portal-session
-```
-
-API mode also renews an expired access token via `refreshToken` when possible. Set `DHS_SKIP_SESSION_REFRESH=1` to skip the browser capture step (debug only).
-This writes gitignored files under `auth/`:
-
-- `portal-session.json` — access token + anon key for edge functions
-- `dismissals.json` — My DHS locally dismissed tasks/meetings (if any)
-
-| Mode | Command |
-|------|---------|
-| API plan + Slack browser (**default**) | `npm run post-dhs` |
-| Force browser Copy Plan | `npm run post-dhs:browser` |
-| API plan only (no Slack) | `npm run post-dhs:dry` |
-
-**Note:** API mode matches a refreshed My DHS list (incomplete tasks + today's meetings). Leave/OOO-style meeting titles are filtered. Dismissals apply only when captured in `dismissals.json`.
-
----
-
-## Message format
-
-The raw “Copy Plan” text is reshaped before posting:
-
-```
-Today's Plan:                    ← bold
-                                 ← 1 blank line
-• Project Name                   ← bold project name (names vary by day)
-  ◦ task …                       ← nested small circle bullet
-  ◦ task …
-
-                                 ← 1 blank line between projects
-• Another Project                ← bold
-  ◦ task …
-
-                                 ← 2 blank lines
-Meetings:                        ← bold
-• meeting …
-• meeting …
-```
-
-Project names are detected dynamically from whatever the portal returns that day.
 
 ---
 
 ## Repository layout
 
 ```
-daily-head-start/
-├── README.md                 ← this guide
+dhs-slack-automation/
+├── README.md
+├── .env.example              ← copy to .env (never commit .env)
 ├── package.json
 ├── src/
-│   ├── config.js             ← URLs, Slack team/channel IDs
+│   ├── config.js             ← reads portal/Slack settings from .env
+│   ├── load-env.js
 │   ├── save-auth.js          ← one-time interactive login
-│   ├── refresh-portal-session.js ← export JWT for API plan fetch
-│   ├── portal-api.js         ← call ac-my-tasks + my-calendar-events
-│   ├── post-dhs.js           ← main automation (API plan → format → Slack)
-│   └── format-plan.js        ← structured/text plan → Slack-friendly layout
+│   ├── refresh-portal-session.js
+│   ├── portal-api.js
+│   ├── post-dhs.js
+│   └── format-plan.js
 ├── scripts/
-│   ├── run-daily.bat         ← Task Scheduler entry point
-│   └── register-task.ps1     ← creates weekday 12:00 task
-├── browser-profile/          ← LOCAL ONLY (gitignored) — saved logins
-├── auth/                     ← LOCAL ONLY (gitignored) — storage state
-└── logs/                     ← LOCAL ONLY (gitignored) — run logs
+│   ├── run-daily.bat
+│   └── register-task.ps1
+├── browser-profile/          ← LOCAL ONLY (gitignored)
+├── auth/                     ← LOCAL ONLY (gitignored)
+└── logs/                     ← LOCAL ONLY (gitignored)
 ```
 
 ---
 
 ## Prerequisites
 
-- Windows PC (Task Scheduler is used for the noon job)
-- Node.js 18+ recommended
-- Access to:
-  - [https://developer.sjinnovation.us/](https://developer.sjinnovation.us/)
-  - Slack workspace **SJ Innovation**
-- PC timezone preferably **Bangladesh Standard Time** (`Asia/Dhaka`) so 12:00 local = noon BD time
+- Windows PC (Task Scheduler for the noon job)
+- Node.js 18+
+- Access to your developer portal and Slack workspace
+- PC timezone preferably **Asia/Dhaka** if you use the default schedule
 
 ---
 
-## One-time setup (for you or a teammate)
+## One-time setup
 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/<your-user>/daily-head-start.git
-cd daily-head-start
+git clone https://github.com/Tamzida-Azad/dhs-slack-automation.git
+cd dhs-slack-automation
 npm install
 npx playwright install chromium
+cp .env.example .env
 ```
+
+Edit `.env` with your portal URLs, Slack workspace URL, team ID, and channel IDs. Channel IDs appear in the browser when you open a channel:
+
+`https://app.slack.com/client/<TEAM_ID>/<CHANNEL_ID>`
+
+Map channels in `DHS_SLACK_CHANNELS` as `slug:CHANNEL_ID` (comma-separated), e.g. `daily-head-start:G0000000000,team-qa:G0000000001`.
 
 ### 2. Sign in once (save session)
 
@@ -143,75 +82,31 @@ npx playwright install chromium
 npm run save-auth
 ```
 
-A headed Chromium window opens with portal + Slack tabs. Sign in manually, open **SJ Innovation** in Slack, then press **Enter** in the terminal.
+A headed Chromium window opens. Sign in to the portal and Slack, then press **Enter** in the terminal. Cookies stay in `browser-profile/` (never commit).
 
-This writes cookies into `browser-profile/` (never commit this folder).
-
-### 3. Confirm Slack channel IDs (if needed)
-
-Defaults in `src/config.js` are for the SJ Innovation workspace used during original setup:
-
-| Channel | Slack ID |
-|---------|----------|
-| `#daily-head-start` | `G7ELUQV45` |
-| `#sj-qa` | `GS3M9CTGB` |
-| Team | `T0285LK1G` |
-
-If your workspace differs, update `src/config.js` after opening each channel in the browser and copying the ID from the URL:
-
-`https://app.slack.com/client/<TEAM_ID>/<CHANNEL_ID>`
-
-### 4. Test a manual run
+### 3. Test a manual run
 
 ```bash
-# Watch the browser while it runs
 set DHS_HEADED=1&& npm run post-dhs
-
-# Or headless (production-style)
 npm run post-dhs
-
-# Plan only — no Slack post
-set DHS_DRY_RUN=1&& set DHS_HEADED=1&& npm run post-dhs
+set DHS_DRY_RUN=1&& npm run post-dhs
 ```
 
-Confirm messages appear in both Slack channels with bold headers.
-
-### 5. Register the weekday schedule
+### 4. Register the weekday schedule
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\register-task.ps1
 ```
 
-Creates Windows task **`SJ-Daily-Head-Start`**: Mon–Fri at **12:00 PM** local time.
-
-Useful commands:
-
-```powershell
-Get-ScheduledTask -TaskName 'SJ-Daily-Head-Start' | Get-ScheduledTaskInfo
-Start-ScheduledTask -TaskName 'SJ-Daily-Head-Start'    # run now
-Unregister-ScheduledTask -TaskName 'SJ-Daily-Head-Start' -Confirm:$false
-```
-
-The PC should be **on** around noon. If it was asleep, `StartWhenAvailable` can start the task after wake.
-
----
-
-## Day-to-day usage
-
-| Situation | Action |
-|-----------|--------|
-| Normal weekday | Nothing — Task Scheduler runs at 12:00 |
-| Need to post now | `npm run post-dhs` or `Start-ScheduledTask -TaskName 'SJ-Daily-Head-Start'` |
-| Login wall / expired session | `npm run save-auth` again |
-| Change channels or schedule hour | Edit `src/config.js` / `scripts/register-task.ps1`, re-register task |
+Creates task **`SJ-Daily-Head-Start`**: Mon–Fri at **12:00 PM** local time.
 
 ---
 
 ## Security notes
 
-- **Do not commit** `browser-profile/`, `auth/`, or `logs/` — they contain session cookies and may include plan text.
-- Each person should use **their own** local profile after `save-auth` (do not share cookie folders).
-- Prefer a **private** GitHub repo if this stays internal to SJ Innovation.
+- **Do not commit** `.env`, `browser-profile/`, `auth/`, or `logs/`.
+- Each operator should use **their own** local profile after `save-auth`.
+- Organization-specific URLs and Slack IDs belong in `.env`, not in source control.
 
 ---
 
@@ -219,11 +114,10 @@ The PC should be **on** around noon. If it was asleep, `StartWhenAvailable` can 
 
 | Problem | What to try |
 |---------|-------------|
-| `Copy Plan button not found` | Portal still loading — re-run; confirm My DHS opens while logged in |
-| Slack workspace chooser / welcome page | `npm run save-auth`, then open `https://sjinnovation.slack.com/` once |
-| Bold headers look like plain text | Slack rich paste may have failed; re-run headed and check composer; report if it persists |
-| Profile already in use | Close other Chromium windows using `browser-profile`, delete `browser-profile/lockfile` if stuck |
-| Task did not run | Check Task Scheduler history; ensure PC was awake; run `Get-ScheduledTaskInfo` |
+| `Missing DHS_*` on start | Copy `.env.example` → `.env` and fill values |
+| `Copy Plan button not found` | Confirm My DHS opens while logged in |
+| Slack workspace chooser | Re-run `npm run save-auth`; open your workspace URL once |
+| Profile already in use | Close other Chromium windows using `browser-profile` |
 
 ---
 
@@ -233,17 +127,8 @@ The PC should be **on** around noon. If it was asleep, `StartWhenAvailable` can 
 |--------|---------|
 | `npm run save-auth` | Interactive login → save persistent profile |
 | `npm run refresh-portal-session` | Capture portal JWT for API plan fetch |
-| `npm run post-dhs` | Full automation (API plan by default + Slack) |
-| `npm run post-dhs:api` | Explicit API plan mode |
-| `npm run post-dhs:browser` | Use My DHS Copy Plan UI instead of APIs |
-| `npm run post-dhs:headed` | Same with visible browser (for Slack) |
-| `npm run post-dhs:dry` | API plan only — no Slack post |
-| `npm run register-task` | Register Windows noon weekday task |
-
----
-
-## Credits / context
-
-Built for SJ Innovation QA workflow to reduce daily manual DHS posting. Original implementer path on disk:
-
-`C:\Users\TAMZIDA\qa-automation\daily-head-start`
+| `npm run post-dhs` | Full automation (API plan + Slack) |
+| `npm run post-dhs:browser` | Use My DHS Copy Plan UI |
+| `npm run post-dhs:headed` | Visible browser |
+| `npm run post-dhs:dry` | Plan only — no Slack post |
+| `npm run register-task` | Register Windows weekday task |

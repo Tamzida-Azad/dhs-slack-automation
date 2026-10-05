@@ -27,7 +27,7 @@ Register-ScheduledTask `
   -Trigger $trigger `
   -Settings $settings `
   -Principal $principal `
-  -Description 'Copy SJ Daily Head Start plan and post to Slack #daily-head-start and #sj-qa (weekdays 12:00 Asia/Dhaka).' `
+  -Description 'Copy Daily Head Start plan and post to configured Slack channels (weekdays 12:00 Asia/Dhaka).' `
   -Force | Out-Null
 
 Write-Host "Scheduled task registered: $taskName"
